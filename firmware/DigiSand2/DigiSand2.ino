@@ -65,10 +65,10 @@ uint8_t lastUsedMenu = 0;   // последнее использованное �
 unsigned long voltage;      // напряжение аккумулятора
 float my_vcc_const = 1.080; // константа вольтметра
 
-bool isDisplayOn = 1;
+bool isDisplayOn = true;
 bool isTimerRunning = false;
 unsigned long lastStandbyTimestamp = 0;
-bool isStandbyTimerOn = 0;
+bool isStandbyTimerOn = false;
 int16_t defaultStandbyWatchInSeconds = 10;
 
 bool hasFlipped = false;
@@ -151,13 +151,18 @@ void onSandPush()
 // функция вызывается при завершении времени отведённого времени
 void onSandEnd()
 {
-  if (isAllSandFallen())
+  if (isAllSandFallen()) // This is not sure, what is doing???
   {
-
     showTime();
     isTimerRunning = false;
     // startStandbyWatch();
+
+    Serial.println("All sand has fallen.");
   }
+
+  showTime();
+  isTimerRunning = false;
+  startStandbyWatch();
 }
 
 // функция вызывается, когда песок перестал сыпаться
@@ -661,15 +666,21 @@ void watchStandby()
   if (isStandbyTimerOn && (millis() - lastStandbyTimestamp >= defaultStandbyWatchInSeconds * 1000))
   {
     Serial.println("Stepping in standby watch passed: " + String(defaultStandbyWatchInSeconds) + " seconds.");
-    stopStandbyWatch();
-    setDisplayOff();
+    // stopStandbyWatch();
+
+    //lastStandbyTimestamp = 0;
+
+    if (!isTimerRunning)
+    {
+      setDisplayOff();
+    }
   }
 
   if (!mpu.isStable())
   {
     if (!isTimerRunning)
     {
-      // startStandbyWatch();
+      startStandbyWatch();
     }
 
     setDisplayOn();
@@ -701,7 +712,7 @@ void setDisplayOff()
 void watchFlipSide()
 {
   hasFlipped = mpu.getDir() == -1;
-  //Serial.println(hasFlipped ? F("Downside up") : F("Upside down"));
+  // Serial.println(hasFlipped ? F("Downside up") : F("Upside down"));
 }
 
 void setup()
@@ -722,10 +733,10 @@ void setup()
   // mpu.setY({2, 1});
   // mpu.setZ({0, 1});
 
-  //New one says X_CW_90 but in reality it has been flipped Y CCW
-  //mpu.setX({1, -1});
-  //mpu.setY({0, 1}); 
-  //mpu.setZ({2, -1});
+  // New one says X_CW_90 but in reality it has been flipped Y CCW
+  // mpu.setX({1, -1});
+  // mpu.setY({0, 1});
+  // mpu.setZ({2, -1});
 
   box.attachBound(checkBound);
   box.attachSet(setXY);
@@ -754,11 +765,8 @@ void loop()
   soundsTick();
 #endif
   buttons();
-  // watchStandby();
-
+  watchStandby();
   watchFlipSide();
-
-  // Serial.println("MPU Ange: " + String(mpu.getAngle()));
 
   if (!disp_tmr.state())
   {
