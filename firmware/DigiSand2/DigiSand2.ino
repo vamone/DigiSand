@@ -20,12 +20,13 @@
 // Структура конфигурации для хранения в EEPROM
 struct Data // TODO: BUG NOT READING THIS VALUES AT ALL!
 {
-  int16_t sec = 60; // время
-  int8_t bri = 1;   // яркость
-  int8_t vol = 0;   // громкость эффектов
-  int8_t mel = 3;   // мелодия окончания времени
-  int8_t ani = 0;   // анимации окончания времени
-  int8_t tmpo = 4;  // темп проигрывания мелодий
+  int16_t sec = 60;  // время
+  int16_t sec2 = 60; // time for a second time once device is flipped
+  int8_t bri = 1;    // яркость
+  int8_t vol = 0;    // громкость эффектов
+  int8_t mel = 4;    // мелодия окончания времени
+  int8_t ani = 0;    // анимации окончания времени
+  int8_t tmpo = 1;   // темп проигрывания мелодий
   int8_t bat = 1;
   int16_t standby_seconds = 5;
 };
@@ -72,6 +73,7 @@ bool isStandbyTimerOn = 0;
 int16_t defaultStandbyWatchInSeconds = 10;
 
 bool hasFlipped = false;
+int16_t current_seconds = 0;
 
 enum MpuOrientation
 {
@@ -236,13 +238,13 @@ void showTime()
 {
   mtrx.clear();
 
-  if (data.sec < 0)
+  if (data.sec2 < 0)
   {
-    data.sec = 0;
+    data.sec2 = 0;
   }
 
-  uint8_t min = data.sec / 60;
-  uint8_t sec = data.sec % 60;
+  uint8_t min = data.sec2 / 60;
+  uint8_t sec = data.sec2 % 60;
 
   printDig(&mtrx, 0, 1, min / 10);
   printDig(&mtrx, 4, 1, min % 10);
@@ -258,18 +260,18 @@ void changeTime(int8_t dir)
 {
   disp_tmr.setTimeout(3000);
   mtrx.clear();
-  data.sec += dir;
-  if (data.sec < 0)
-    data.sec = 0;
-  uint8_t min = data.sec / 60;
-  uint8_t sec = data.sec % 60;
+  data.sec2 += dir;
+  if (data.sec2 < 0)
+    data.sec2 = 0;
+  uint8_t min = data.sec2 / 60;
+  uint8_t sec = data.sec2 % 60;
 
   printDig(&mtrx, 0, 1, min / 10);
   printDig(&mtrx, 4, 1, min % 10);
   printDig(&mtrx, 8 + 0, 1, sec / 10);
   printDig(&mtrx, 8 + 4, 1, sec % 10);
 
-  fall_tmr.setInterval(data.sec * 1000ul / PART_AMOUNT);
+  fall_tmr.setInterval(data.sec2 * 1000ul / PART_AMOUNT);
   memory.update();
   mtrx.update();
 }
@@ -500,7 +502,7 @@ void buttons()
 
     if (up.hold())
     {
-      changeTime(10);
+      changeTime(30);
     }
 
     // останавливаем проигрывание мелодии при нажатии на любую кнопку
@@ -516,7 +518,7 @@ void buttons()
 
     if (down.hold())
     {
-      changeTime(-10);
+      changeTime(-30);
     }
   }
   else
@@ -701,7 +703,8 @@ void setDisplayOff()
 void watchFlipSide()
 {
   hasFlipped = mpu.getDir() == -1;
-  //Serial.println(hasFlipped ? F("Downside up") : F("Upside down"));
+  // Serial.println(hasFlipped ? F("Downside up") : F("Upside down"));
+  current_seconds = hasFlipped ? data.sec2 : data.sec;
 }
 
 void setup()
@@ -722,10 +725,10 @@ void setup()
   // mpu.setY({2, 1});
   // mpu.setZ({0, 1});
 
-  //New one says X_CW_90 but in reality it has been flipped Y CCW
-  //mpu.setX({1, -1});
-  //mpu.setY({0, 1}); 
-  //mpu.setZ({2, -1});
+  // New one says X_CW_90 but in reality it has been flipped Y CCW
+  // mpu.setX({1, -1});
+  // mpu.setY({0, 1});
+  // mpu.setZ({2, -1});
 
   box.attachBound(checkBound);
   box.attachSet(setXY);
@@ -743,7 +746,8 @@ void setup()
   delay(2000); // время отображения заряда после включения
 
   resetSand();
-  fall_tmr.setInterval(data.sec * 1000ul / PART_AMOUNT);
+
+  fall_tmr.setInterval(data.sec2 * 1000ul / PART_AMOUNT);
 }
 
 void loop()
