@@ -1,6 +1,11 @@
 #include <Arduino.h>
-
 #include "print3x5.h"
+#include <EEManager.h>
+#include <EncButton.h>
+#include <GyverMAX7219.h>
+#include "mini6050.h"
+#include "sand.h"
+#include "Timer.h"
 
 #define PART_AMOUNT 58 // общее число песчинок на поле
 #define BTN1_PIN 4
@@ -18,62 +23,50 @@
 #define battery_max 3800 // максимальный уровень заряда батареи для отображения  3800
 
 // Структура конфигурации для хранения в EEPROM
-struct Data // TODO: BUG NOT READING THIS VALUES AT ALL!
+struct Data // Sometimes it works, sometimes not.
 {
-  int16_t sec = 60;  // время
-  int16_t sec2 = 60; // time for a second time once device is flipped
-  int8_t bri = 1;    // яркость
-  int8_t vol = 0;    // громкость эффектов
-  int8_t mel = 4;    // мелодия окончания времени
-  int8_t ani = 0;    // анимации окончания времени
-  int8_t tmpo = 1;   // темп проигрывания мелодий
+  int16_t sec = 60; // время
+  int8_t bri = 0;   // яркость
+  int8_t vol = 0;   // громкость эффектов
+  int8_t mel = 4;   // мелодия окончания времени
+  int8_t ani = 0;   // анимации окончания времени
+  int8_t tmpo = 1;  // темп проигрывания мелодий
   int8_t bat = 1;
-  int16_t standby_seconds = 5;
 };
-Data data;
 
-#include <EEManager.h>
+Data data;
 EEManager memory(data);
 
-// button
-#include <EncButton.h>
+// buttons
 Button up(BTN1_PIN);
 Button down(BTN2_PIN);
 Button menu(BTN3_PIN);
 VirtButton dbl;
 
 // matrix
-#include <GyverMAX7219.h>
 MAX7219<2, 1, CS_PIN, DT_PIN, CK_PIN> mtrx;
 
 // mpu
-#include "mini6050.h"
 Mini6050 mpu;
 
 // sandbox
 #define BOX_W 16
 #define BOX_H 16
-
-#include "sand.h"
 Sand<BOX_W, BOX_H> box;
 
-// timer
-#include "Timer.h"
+// timers
 Timer fall_tmr, disp_tmr, menu_tmr;
 
-uint8_t inMenu = 0;
-uint8_t lastUsedMenu = 0;   // последнее использованное меню
-unsigned long voltage;      // напряжение аккумулятора
-float my_vcc_const = 1.080; // константа вольтметра
+// menu
+uint8_t currentMenuIndex = 0;
+uint8_t lastUsedMenuIndex = 0; // последнее использованное меню
+unsigned long voltage;         // напряжение аккумулятора
+float my_vcc_const = 1.080;    // константа вольтметра
 
-bool isDisplayOn = 1;
-bool isTimerRunning = false;
-unsigned long lastStandbyTimestamp = 0;
-bool isStandbyTimerOn = 0;
-int16_t defaultStandbyWatchInSeconds = 10;
+// has device being flipped
+bool hasDeviceBeingFlipped = false;
 
-bool hasFlipped = false;
-int16_t current_seconds = 0;
+// others
 
 enum MpuOrientation
 {
@@ -86,6 +79,7 @@ enum MpuOrientation
   ROT_Y_CCW_90  // -90° about +Y (roll left)
 };
 
+// not sure of those
 void setMpuOrientation(MpuOrientation o)
 {
   switch (o)
@@ -141,8 +135,48 @@ void onSandPush()
 #ifdef SOUND_PIN
   StopMelody(); // чтобы мелодия не накладывалась на звук падающего песка
   if (data.vol > 0)
+  {
     PlaySandPushTone();
+  }
 #endif
+}
+
+bool haveAllGrainsFallen()
+{
+  // When upside down, check if all particles are in the bottom (previous top)
+  if (!hasDeviceBeingFlipped)
+  {
+    for (uint8_t y = BOX_H / 2; y < BOX_H; y++)
+    {
+      for (uint8_t x = 0; x < BOX_W; x++)
+      {
+        if (box.buf.get(x, y))
+        {
+          return false;
+        }
+      }
+    }
+
+    // Serial.println("All particles have fallen to the bottom (falling up).");
+  }
+  else
+  {
+    // Check if particles are in the top (previous bottom)
+    for (uint8_t y = 0; y < BOX_H / 2; y++)
+    {
+      for (uint8_t x = 0; x < BOX_W; x++)
+      {
+        if (box.buf.get(x, y))
+        {
+          return false;
+        }
+      }
+    }
+
+    // Serial.println("All particles have fallen to the top (falling down).");
+  }
+
+  return true;
 }
 
 // todo
@@ -153,12 +187,12 @@ void onSandPush()
 // функция вызывается при завершении времени отведённого времени
 void onSandEnd()
 {
-  if (isAllSandFallen())
+  if (haveAllGrainsFallen())
   {
-
     showTime();
-    isTimerRunning = false;
     // startStandbyWatch();
+
+    Serial.println("onSandEnd -> All sand grains have fallen.");
   }
 }
 
@@ -168,7 +202,9 @@ void onSandStop()
 {
 #ifdef SOUND_PIN
   if (data.mel > 0)
+  {
     PlayMelody(data.mel);
+  }
 #endif
 }
 
@@ -189,7 +225,8 @@ void onBatteryEmpty()
   }
 }
 
-bool runFlag = 1;
+// What does this do?
+bool isRunning = true;
 bool checkBound(int8_t x, int8_t y)
 {
   if (y >= 8 && x < 8)
@@ -209,6 +246,7 @@ bool checkBound(int8_t x, int8_t y)
   return (x >= 0 && y >= 0 && x < BOX_W && y < BOX_H);
 }
 
+// and this?
 void setXY(int8_t x, int8_t y, bool value)
 {
   if (y >= 8)
@@ -218,8 +256,7 @@ void setXY(int8_t x, int8_t y, bool value)
 
 void resetSand()
 {
-  isTimerRunning = true;
-  Serial.println("Starting timer.");
+  Serial.println("resetSand -> Starting timer.");
 
   box.buf.clear();
   mtrx.clear();
@@ -229,8 +266,6 @@ void resetSand()
     box.buf.set(n % 8, n / 8, 1);
   }
 
-  // stopStandbyWatch();
-
   showTime();
 }
 
@@ -238,13 +273,13 @@ void showTime()
 {
   mtrx.clear();
 
-  if (data.sec2 < 0)
+  if (data.sec < 0)
   {
-    data.sec2 = 0;
+    data.sec = 0;
   }
 
-  uint8_t min = data.sec2 / 60;
-  uint8_t sec = data.sec2 % 60;
+  uint8_t min = data.sec / 60;
+  uint8_t sec = data.sec % 60;
 
   printDig(&mtrx, 0, 1, min / 10);
   printDig(&mtrx, 4, 1, min % 10);
@@ -256,22 +291,24 @@ void showTime()
   disp_tmr.setTimeout(3000);
 }
 
+// Settings
+
 void changeTime(int8_t dir)
 {
   disp_tmr.setTimeout(3000);
   mtrx.clear();
-  data.sec2 += dir;
-  if (data.sec2 < 0)
-    data.sec2 = 0;
-  uint8_t min = data.sec2 / 60;
-  uint8_t sec = data.sec2 % 60;
+  data.sec += dir;
+  if (data.sec < 0)
+    data.sec = 0;
+  uint8_t min = data.sec / 60;
+  uint8_t sec = data.sec % 60;
 
   printDig(&mtrx, 0, 1, min / 10);
   printDig(&mtrx, 4, 1, min % 10);
   printDig(&mtrx, 8 + 0, 1, sec / 10);
   printDig(&mtrx, 8 + 4, 1, sec % 10);
 
-  fall_tmr.setInterval(data.sec2 * 1000ul / PART_AMOUNT);
+  fall_tmr.setInterval(data.sec * 1000ul / PART_AMOUNT);
   memory.update();
   mtrx.update();
 }
@@ -342,7 +379,7 @@ void enterMenu(int8_t menu)
   if (menu < 1)
     menu = 5;
 
-  inMenu = menu;
+  currentMenuIndex = menu;
   menu_tmr.setTimeout(forgetLastMenu, 30000);
 
   showMenu(menu);
@@ -350,7 +387,7 @@ void enterMenu(int8_t menu)
 
 void forgetLastMenu()
 {
-  lastUsedMenu = 0;
+  lastUsedMenuIndex = 0;
 }
 
 void showMenu(int8_t menu)
@@ -465,8 +502,8 @@ void changeMenuParam(int8_t menu, int8_t val)
 // колбэк для выхода из меню по таймауту
 void returnFromMenu()
 {
-  lastUsedMenu = inMenu; // запоминаем последнее использованное
-  inMenu = 0;
+  lastUsedMenuIndex = currentMenuIndex; // запоминаем последнее использованное
+  currentMenuIndex = 0;
 }
 
 // обработчик кнопок
@@ -475,13 +512,12 @@ void buttons()
   up.tick();
   down.tick();
   menu.tick();
-  // dbl.tick(up, down);
 
-  if (!inMenu)
+  if (!currentMenuIndex)
   {
     if (menu.hold())
     {
-      enterMenu(lastUsedMenu ? lastUsedMenu : 1);
+      enterMenu(lastUsedMenuIndex ? lastUsedMenuIndex : 1);
     }
 
     if (menu.click())
@@ -526,21 +562,22 @@ void buttons()
     // if (menu.hold()) returnFromMenu();
     if (menu.click())
     {
-      enterMenu(inMenu + 1); // if (down.hold() && down.click()) enterMenu(inMenu - 1);
+      enterMenu(currentMenuIndex + 1); // if (down.hold() && down.click()) enterMenu(currentMenuIndex - 1);
     }
 
     if (up.click())
     {
-      changeMenuParam(inMenu, 1);
+      changeMenuParam(currentMenuIndex, 1);
     }
 
     if (down.click())
     {
-      changeMenuParam(inMenu, -1);
+      changeMenuParam(currentMenuIndex, -1);
     }
   }
 }
 
+// what is this for? I think that one is for stepping the sand grains?
 void step()
 {
   uint16_t prd = 255 - mpu.getMag();
@@ -553,13 +590,13 @@ void step()
   }
 }
 
+// falling timer
 void fall()
 {
   if (fall_tmr)
   {
-    bool pushed = 0;
-    if (!hasFlipped)
-    // if (mpu.getDir() > 0)
+    bool hasPushed = false;
+    if (!hasDeviceBeingFlipped)
     {
       if (box.buf.get(7, 7) && !box.buf.get(8, 8))
       {
@@ -567,7 +604,7 @@ void fall()
         box.buf.set(8, 8, 1);
         box.setCallback(7, 7, 0);
         box.setCallback(8, 8, 1);
-        pushed = 1;
+        hasPushed = 1;
       }
     }
     else
@@ -578,21 +615,21 @@ void fall()
         box.buf.set(7, 7, 1);
         box.setCallback(8, 8, 0);
         box.setCallback(7, 7, 1);
-        pushed = 1;
+        hasPushed = 1;
       }
     }
 
-    if (pushed)
+    if (hasPushed)
     {
-      runFlag = 0;
+      isRunning = false;
       mtrx.update();
       onSandPush();
     }
     else
     {
-      if (!runFlag)
+      if (!isRunning)
       {
-        runFlag = 1;
+        isRunning = true;
         onSandStop();
         onSandEnd();
       }
@@ -600,111 +637,10 @@ void fall()
   }
 }
 
-bool isAllSandFallen()
-{
-  // When upside down, check if all particles are in the bottom (previous top)
-  if (!hasFlipped)
-  {
-    for (uint8_t y = BOX_H / 2; y < BOX_H; y++)
-    {
-      for (uint8_t x = 0; x < BOX_W; x++)
-      {
-        if (box.buf.get(x, y))
-        {
-          return false;
-        }
-      }
-    }
-
-    // Serial.println("All particles have fallen to the bottom (falling up).");
-  }
-  else
-  {
-    // Check if particles are in the top (previous bottom)
-    for (uint8_t y = 0; y < BOX_H / 2; y++)
-    {
-      for (uint8_t x = 0; x < BOX_W; x++)
-      {
-        if (box.buf.get(x, y))
-        {
-          return false;
-        }
-      }
-    }
-
-    // Serial.println("All particles have fallen to the top (falling down).");
-  }
-
-  return true;
-}
-
-void startStandbyWatch()
-{
-  if (!isStandbyTimerOn)
-  {
-    lastStandbyTimestamp = millis();
-    isStandbyTimerOn = true;
-    Serial.println("Set last standby timestamp: " + String(lastStandbyTimestamp) + " Standby timer set to: " + String(isStandbyTimerOn) + ".");
-  }
-}
-
-void stopStandbyWatch()
-{
-  if (isStandbyTimerOn)
-  {
-    lastStandbyTimestamp = 0;
-    isStandbyTimerOn = false;
-    Serial.println("Set last standby timestamp: " + String(lastStandbyTimestamp) + " Standby timer set to: " + String(isStandbyTimerOn) + ".");
-  }
-}
-
-void watchStandby()
-{
-  if (isStandbyTimerOn && (millis() - lastStandbyTimestamp >= defaultStandbyWatchInSeconds * 1000))
-  {
-    Serial.println("Stepping in standby watch passed: " + String(defaultStandbyWatchInSeconds) + " seconds.");
-    stopStandbyWatch();
-    setDisplayOff();
-  }
-
-  if (!mpu.isStable())
-  {
-    if (!isTimerRunning)
-    {
-      // startStandbyWatch();
-    }
-
-    setDisplayOn();
-  }
-}
-
-void setDisplayOn()
-{
-  if (!isDisplayOn)
-  {
-    Serial.println("Display on.");
-    mtrx.clear();
-    mtrx.setPower(true);
-    isDisplayOn = true;
-  }
-}
-
-void setDisplayOff()
-{
-  if (isDisplayOn)
-  {
-    Serial.println("Display off.");
-    mtrx.clear();
-    mtrx.setPower(false);
-    isDisplayOn = false;
-  }
-}
-
+// watchers
 void watchFlipSide()
 {
-  hasFlipped = mpu.getDir() == -1;
-  // Serial.println(hasFlipped ? F("Downside up") : F("Upside down"));
-  current_seconds = hasFlipped ? data.sec2 : data.sec;
+  hasDeviceBeingFlipped = mpu.getDir() == -1;
 }
 
 void setup()
@@ -739,15 +675,19 @@ void setup()
 #endif
 
   voltage = readVcc(); // считать напряжение питания
-  // Serial.println(voltage);
+  Serial.println(voltage);
+
   if (voltage <= battery_min)
+  {
     onBatteryEmpty();
+  }
+
   showBattLevel(voltage);
   delay(2000); // время отображения заряда после включения
 
   resetSand();
 
-  fall_tmr.setInterval(data.sec2 * 1000ul / PART_AMOUNT);
+  fall_tmr.setInterval(data.sec * 1000ul / PART_AMOUNT);
 }
 
 void loop()
@@ -758,11 +698,7 @@ void loop()
   soundsTick();
 #endif
   buttons();
-  // watchStandby();
-
   watchFlipSide();
-
-  // Serial.println("MPU Ange: " + String(mpu.getAngle()));
 
   if (!disp_tmr.state())
   {
