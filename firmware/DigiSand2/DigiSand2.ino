@@ -534,6 +534,34 @@ void returnFromMenu()
   currentMenuIndex = 0;
 }
 
+uint32_t upButtonHeldStart = 0;
+uint32_t downButtonHeldStart = 0;
+
+int accelAmount(uint32_t heldMs)
+{
+  /*if (heldMs < 600)
+  {
+    return 1;
+  }*/
+
+  if (heldMs < 1500)
+  {
+    return 10;
+  }
+
+  if (heldMs < 3000)
+  {
+    return 30;
+  }
+
+  if (heldMs < 4500)
+  {
+    return 60;
+  }
+
+  return 300;
+}
+
 // обработчик кнопок
 void buttons()
 {
@@ -561,12 +589,13 @@ void buttons()
 
     if (up.step())
     {
-      changeTime(10);
+      uint32_t held = millis() - upButtonHeldStart;
+      changeTime(accelAmount(held));
     }
 
     if (up.hold())
     {
-      changeTime(30);
+      upButtonHeldStart = millis();
     }
 
     // останавливаем проигрывание мелодии при нажатии на любую кнопку
@@ -577,12 +606,13 @@ void buttons()
 
     if (down.step())
     {
-      changeTime(-10);
+      uint32_t held = millis() - downButtonHeldStart;
+      changeTime(-accelAmount(held));
     }
 
     if (down.hold())
     {
-      changeTime(-30);
+      downButtonHeldStart = millis();
     }
   }
   else
