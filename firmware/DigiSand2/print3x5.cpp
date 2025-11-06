@@ -2,6 +2,9 @@
 
 #include "print3x5.h"
 
+constexpr uint8_t MATRIX_W = 16; // 16 if you have two 8x8 chained
+constexpr uint8_t MATRIX_H = 8;
+
 static const uint8_t font3x5[][3] PROGMEM = {
     {
         0b11111,
@@ -55,12 +58,55 @@ static const uint8_t font3x5[][3] PROGMEM = {
     },
 };
 
-void printDig(GyverGFX* mx, int X, int Y, uint8_t dig) {
-    if (dig > 9) return;
-    for (uint8_t x = 0; x < 3; x++) {
+/*void printDig(GyverGFX *mx, int X, int Y, uint8_t dig)
+{
+    if (dig > 9)
+    {
+        return;
+    }
+
+    for (uint8_t x = 0; x < 3; x++)
+    {
         uint8_t col = pgm_read_byte(&font3x5[dig][x]);
-        for (uint8_t y = 0; y < 5; y++) {
-            if (bitRead(col, 4 - y)) mx->dot(X + 2 - x, Y + y);
+        for (uint8_t y = 0; y < 5; y++)
+        {
+            if (bitRead(col, 4 - y))
+            {
+                mx->dot(X + 2 - x, Y + y);
+            }
+        }
+    }
+}*/
+
+void printDig(GyverGFX *mx, int X, int Y, uint8_t dig, bool isDeviceFlipped)
+{
+    if (dig > 9)
+    {
+        return;
+    }
+
+    uint8_t digitWidth = 3;
+    uint8_t digitHeight = 5;
+
+    for (uint8_t x = 0; x < digitWidth; x++)
+    {
+        uint8_t col = pgm_read_byte(&font3x5[dig][x]);
+        for (uint8_t y = 0; y < digitHeight; y++)
+        {
+            if (bitRead(col, 4 - y))
+            {
+                uint8_t dotX = X + 2 - x;
+                uint8_t dotY = Y + y;
+
+                if (isDeviceFlipped)
+                {
+                    mx->dot((MATRIX_W - 1) - dotX, (MATRIX_H - 1) - dotY);
+                }
+                else
+                {
+                    mx->dot(dotX, dotY);
+                }
+            }
         }
     }
 }
@@ -75,8 +121,7 @@ static const uint8_t icons[][8] PROGMEM = {
         0b00100100,
         0b00111100,
         0b00111100,
-        0b00000000
-    },
+        0b00000000},
     // 1 мелодия
     {
         0b00000000,
@@ -86,8 +131,7 @@ static const uint8_t icons[][8] PROGMEM = {
         0b00000010,
         0b00000100,
         0b00000000,
-        0b00000000 
-    },
+        0b00000000},
     // 2 яркость
     {
         0b00111100,
@@ -97,8 +141,7 @@ static const uint8_t icons[][8] PROGMEM = {
         0b11111111,
         0b11111111,
         0b01111110,
-        0b00111100  
-    },
+        0b00111100},
     // 3 анимация окончания
     {
         0b00000000,
@@ -108,8 +151,7 @@ static const uint8_t icons[][8] PROGMEM = {
         0b00111111,
         0b01001000,
         0b01001000,
-        0b00000000  
-    },
+        0b00000000},
     // 4 батарейка пустая
     {
         0b00111100,
@@ -119,8 +161,7 @@ static const uint8_t icons[][8] PROGMEM = {
         0b00100100,
         0b00100100,
         0b00111100,
-        0b00011000  
-    },
+        0b00011000},
     // 5 летящая нота (темп)
     {
         0b11100000,
@@ -141,15 +182,18 @@ static const uint8_t icons[][8] PROGMEM = {
         0b00100100,
         0b00100100,
         0b00111100,
-        0b00011000  
-    },
+        0b00011000},
 };
 
-void printIcon(GyverGFX* mx, int X, int Y, uint8_t icon) {
-    for (uint8_t x = 0; x < 8; x++) {
+void printIcon(GyverGFX *mx, int X, int Y, uint8_t icon)
+{
+    for (uint8_t x = 0; x < 8; x++)
+    {
         uint8_t col = pgm_read_byte(&icons[icon][x]);
-        for (uint8_t y = 0; y < 8; y++) {
-            if (bitRead(col, y)) mx->dot(X + x, Y + y);
+        for (uint8_t y = 0; y < 8; y++)
+        {
+            if (bitRead(col, y))
+                mx->dot(X + x, Y + y);
         }
     }
 }

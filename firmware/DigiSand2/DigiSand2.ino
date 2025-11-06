@@ -8,13 +8,22 @@
 #include "Timer.h"
 
 #define PART_AMOUNT 58 // общее число песчинок на поле
+
 #define BTN1_PIN 4
 #define BTN2_PIN 6
 #define BTN3_PIN 5
+#define SOUND_PIN 3
 #define CS_PIN 7
 #define DT_PIN 8
 #define CK_PIN 9
-#define SOUND_PIN 3
+
+// #define BTN1_PIN 3
+// #define BTN2_PIN 4
+// #define BTN3_PIN 5
+// #define SOUND_PIN 9
+// #define CS_PIN 6
+// #define DT_PIN 7
+// #define CK_PIN 8
 
 #define MaxVolume 1 // максимальный уровень громкости эффектов
 #define MaxMelody 5 // число имеющихся мелодий (для корректной работы меню)
@@ -194,6 +203,8 @@ void onSandEnd()
 
     Serial.println("onSandEnd -> All sand grains have fallen.");
   }
+
+  showTime();
 }
 
 // функция вызывается, когда песок перестал сыпаться
@@ -281,10 +292,16 @@ void showTime()
   uint8_t min = data.sec / 60;
   uint8_t sec = data.sec % 60;
 
-  printDig(&mtrx, 0, 1, min / 10);
-  printDig(&mtrx, 4, 1, min % 10);
-  printDig(&mtrx, 8 + 0, 1, sec / 10);
-  printDig(&mtrx, 8 + 4, 1, sec % 10);
+  uint8_t minFirstDigit = min / 10;
+  uint8_t minSecondDigit = min % 10;
+
+  uint8_t secFirstDigit = sec / 10;
+  uint8_t secSecondDigit = sec % 10;
+
+  printDig(&mtrx, 0, 1, minFirstDigit, hasDeviceBeingFlipped);
+  printDig(&mtrx, 4, 1, minSecondDigit, hasDeviceBeingFlipped);
+  printDig(&mtrx, 8 + 0, 1, secFirstDigit, hasDeviceBeingFlipped);
+  printDig(&mtrx, 8 + 4, 1, secSecondDigit, hasDeviceBeingFlipped);
 
   mtrx.update();
 
@@ -297,16 +314,27 @@ void changeTime(int8_t dir)
 {
   disp_tmr.setTimeout(3000);
   mtrx.clear();
-  data.sec += dir;
+
+  data.sec += hasDeviceBeingFlipped ? -dir : dir;
+
   if (data.sec < 0)
+  {
     data.sec = 0;
+  }
+
   uint8_t min = data.sec / 60;
   uint8_t sec = data.sec % 60;
 
-  printDig(&mtrx, 0, 1, min / 10);
-  printDig(&mtrx, 4, 1, min % 10);
-  printDig(&mtrx, 8 + 0, 1, sec / 10);
-  printDig(&mtrx, 8 + 4, 1, sec % 10);
+  uint8_t minFirstDigit = min / 10;
+  uint8_t minSecondDigit = min % 10;
+
+  uint8_t secFirstDigit = sec / 10;
+  uint8_t secSecondDigit = sec % 10;
+
+  printDig(&mtrx, 0, 1, minFirstDigit, hasDeviceBeingFlipped);
+  printDig(&mtrx, 4, 1, minSecondDigit, hasDeviceBeingFlipped);
+  printDig(&mtrx, 8 + 0, 1, secFirstDigit, hasDeviceBeingFlipped);
+  printDig(&mtrx, 8 + 4, 1, secSecondDigit, hasDeviceBeingFlipped);
 
   fall_tmr.setInterval(data.sec * 1000ul / PART_AMOUNT);
   memory.update();
@@ -675,7 +703,7 @@ void setup()
 #endif
 
   voltage = readVcc(); // считать напряжение питания
-  Serial.println(voltage);
+  Serial.println("Voltage -> " + voltage);
 
   if (voltage <= battery_min)
   {
